@@ -26,7 +26,7 @@ public:
 	IENavigator();
     ~IENavigator();
     
-    void Navigate(const char *url);
+    void Navigate(const char *url, DWORD *latency);
 private:
 	IWebBrowser2* pBrowser;
 	void __stdcall OnDocumentComplete(IDispatch* pDisp, VARIANT* URL);
@@ -61,7 +61,8 @@ IENavigator::WaitForComplete()
     CHandle event(CreateEvent(NULL, TRUE, FALSE, NULL));
     while (true) {
         /* Wait some messages for one millisecond */
-        const DWORD nWaitResult = MsgWaitForMultipleObjects(1, &event.m_h, FALSE, 1, QS_ALLINPUT | QS_ALLPOSTMESSAGE);
+        const DWORD nWaitResult = 0;// MsgWaitForMultipleObjects(1, &event.m_h, FALSE, 1, QS_ALLINPUT | QS_ALLPOSTMESSAGE);
+        Sleep(1);
         if (nWaitResult != WAIT_TIMEOUT) {
             /* Dispatch all messages from queue */
             MSG Message;
@@ -100,31 +101,58 @@ IENavigator::WaitForCompleteSink()
 }
 
 void
-IENavigator::Navigate(const char *url)
+IENavigator::Navigate(const char *url, DWORD *latency)
 {
+    *latency = 0;
+
+    VARIANT vFlags;
+    VariantInit(&vFlags);
+
     VARIANT vEmpty;
     VariantInit(&vEmpty);
 
     BSTR bstrURL = SysAllocString(CA2W(url));
-    
+
     DWORD startTime = timeGetTime();
-    HRESULT hr = pBrowser->Navigate(bstrURL, &vEmpty, &vEmpty, &vEmpty, &vEmpty);
+    HRESULT hr = pBrowser->Navigate(bstrURL, &vFlags, &vEmpty, &vEmpty, &vEmpty);
 
     if (SUCCEEDED(hr)) {
         WaitForComplete();
         DWORD stopTime = timeGetTime();
-        printf("%s: %u ms\n", url, stopTime - startTime);
-        pBrowser->put_Visible(VARIANT_TRUE);
-    } else {
-        pBrowser->Quit();
+        *latency = stopTime - startTime;
     }
+    pBrowser->Quit();
     SysFreeString(bstrURL);
 }
 
 int main()
 {
-    IENavigator navigator;
-    navigator.Navigate("http://microsoft.com");
+    const int iterCount = 23;
+    const int iterOffset = 3;
+    char *URLs[] = {
+        "https://microsoft.com",
+        "https://gnu.org",
+        "https://vk.com",
+        NULL
+    };
+
+    for (int item = 0; URLs[item]; item++) {
+        printf("%s ==>\n\t", URLs[item]);
+        DWORD latencySum = 0;
+        for (int i = 0; i < iterCount; i++) {
+            DWORD latency = 0;
+            IENavigator navigator;
+            navigator.Navigate(URLs[item], &latency);
+
+            if (i >= iterOffset) {
+                printf("%u  ", latency);
+                latencySum += latency;
+            } else {
+                printf("(%u)  ", latency);
+            }
+        }
+        printf("\n\t average: %u ms\n", latencySum / (iterCount - iterOffset));
+    }
     printf("ready\n");
     _getch();
 
